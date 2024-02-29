@@ -1,17 +1,24 @@
-from syft.workers.websocket_server import WebsocketServerWorker
+import pandas as pd
 import syft as sy
-import torch
-hook = sy.TorchHook(torch)
+
+from globals import SYFT_VERSION
+
+sy.requires(SYFT_VERSION)
+
+EXAMPLE_PORT = 8080
 
 kwargs = {
-    "id": "bob",
-    "host": "localhost",
-    "port": 8778,
-    "hook": hook,
-    "verbose": True
+    "email": "bob@example.com",
+    "password": "example",
+    "port": EXAMPLE_PORT,
 }
 
 if __name__ == "__main__":
-    server = WebsocketServerWorker(**kwargs)
-    print(server.start())
-    print(server.list_objects())
+    print("logging into the server")
+    domain_client = sy.login(**kwargs)
+    print(domain_client)
+    print("exposed APIs are")
+    print(domain_client.api)
+
+
+    

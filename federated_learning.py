@@ -1,129 +1,150 @@
-import pickle
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from torch.utils.data import TensorDataset, DataLoader
-import time
-import copy
-import numpy as np
+import pandas as pd
 import syft as sy
-from syft.frameworks.torch.federated import utils
-from syft.workers.websocket_client import WebsocketClientWorker
+from syft import autocache
 
-class Parser:
-    def __init__(self):
-        self.epochs = 100
-        self.lr = 0.001
-        self.test_batch_size = 8
-        self.batch_size = 8
-        self.log_interval = 10
-        self.seed = 1
-            
-class Net(nn.Module):
-    def __init__(self):
-        super(Net, self).__init__()
-        self.fc1 = nn.Linear(13, 32)
-        self.fc2 = nn.Linear(32, 24)
-        self.fc4 = nn.Linear(24, 16)
-        self.fc3 = nn.Linear(16, 1)
+from globals import SYFT_VERSION, EXAMPLE_DOMAIN, EXAMPLE_PORT
 
-    def forward(self, x):
-        x = x.view(-1, 13)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc4(x))
-        x = self.fc3(x)
-        return x
-
-def update(data, target, model, optimizer):
-    model.send(data.location)
-    optimizer.zero_grad()
-    prediction = model(data)
-    loss = F.mse_loss(prediction.view(-1), target)
-    loss.backward()
-    optimizer.step()
-    return model
-
-def train():
-    for data_index in range(len(remote_dataset[0])-1):
-        for remote_index in range(len(compute_nodes)):
-            data, target = remote_dataset[remote_index][data_index]
-            models[remote_index] = update(data, target, models[remote_index], optimizers[remote_index])
-        for model in models:
-            model.get()
-        return utils.federated_avg({
-            "bob": models[0],
-            "alice": models[1]
-        })
-        
-def test(federated_model):
-    federated_model.eval()
-    test_loss = 0
-    for data, target in test_loader:
-        output = federated_model(data)
-        test_loss += F.mse_loss(output.view(-1), target, reduction='sum').item()
-        predection = output.data.max(1, keepdim=True)[1]
-        
-    test_loss /= len(test_loader.dataset)
-    print('Test set: Average loss: {:.4f}'.format(test_loss))
+sy.requires(SYFT_VERSION)
 
 
-if __name__ == "__main__":
-        
-    args = Parser()
-    torch.manual_seed(args.seed)
 
-    with open('./data/boston_housing.pickle','rb') as f:
-        ((x, y), (x_test, y_test)) = pickle.load(f)
+params = {
+    "name": EXAMPLE_DOMAIN,
+    "port": EXAMPLE_PORT,
+    "dev_mode": True,
+    "reset": True
+}
 
-    x = torch.from_numpy(x).float()
-    y = torch.from_numpy(y).float()
-    x_test = torch.from_numpy(x_test).float()
-    y_test = torch.from_numpy(y_test).float()
-    mean = x.mean(0, keepdim=True)
-    dev = x.std(0, keepdim=True)
-    mean[:, 3] = 0.
-    dev[:, 3] = 1.
-    x = (x - mean) / dev
-    x_test = (x_test - mean) / dev
-    train = TensorDataset(x, y)
-    test = TensorDataset(x_test, y_test)
-    train_loader = DataLoader(train, batch_size=args.batch_size, shuffle=True)
-    test_loader = DataLoader(test, batch_size=args.test_batch_size, shuffle=True)
+if __name__ == '__main__':
+    node = sy.orchestra.launch(**params)
     
-    # connect to workers
-    hook = sy.TorchHook(torch)
-    bob_worker = sy.VirtualWorker(hook, id="bob")
-    alice_worker = sy.VirtualWorker(hook, id="alice")
-    compute_nodes = [bob_worker, alice_worker]
-    
-    # dataset and models
-    remote_dataset = ([], []) # type: ignore
-    train_distributed_dataset = [] # type: ignore
+    # log into the node with default root credentials
+    root_client = node.login(email="info@openmined.org", password="changethis")
 
-    for batch_idx, (data,target) in enumerate(train_loader):
-        data = data.send(compute_nodes[batch_idx % len(compute_nodes)])
-        target = target.send(compute_nodes[batch_idx % len(compute_nodes)])
-        remote_dataset[batch_idx % len(compute_nodes)].append((data, target))
-        
-    bobs_model = Net()
-    alices_model = Net()
-    bobs_optimizer = optim.SGD(bobs_model.parameters(), lr=args.lr)
-    alices_optimizer = optim.SGD(alices_model.parameters(), lr=args.lr)
+
+    # register needed users
+    # Register a new user using root credentials
+    response_1 = root_client.register(
+        email="bob@example.com",
+        password="example",
+        password_verify="example",
+        name="Bob",
+    )
+
+    # register needed users
+    # Register a new user using root credentials
+    response_2 = root_client.register(
+        email="alice@example.com",
+        password="example2",
+        password_verify="example2",
+        name="Alice",
+    )
     
-    models = [bobs_model, alices_model]
-    optimizers = [bobs_optimizer, alices_optimizer]
+    assert root_client.settings.get().signup_enabled is False
+    assert isinstance(response_1, sy.SyftSuccess)
+    assert isinstance(response_2, sy.SyftSuccess)
+
+    #upload data
+    print("Starting data upload from root")
+    domain_client = root_client
+    # Check for existing Data Subjects
+    print("check starting from clean")
+    data_subjects = domain_client.data_subject_registry.get_all()
+    print("showing data_subjects object")
+    assert len(data_subjects) == 0 # none have been uploaded yet
     
-    # centralized model
-    model = Net()
+    # uploads
+    print("uploading data subjects")
+    country = sy.DataSubject(name="Country", aliases=["country_code"])
+    canada = sy.DataSubject(name="Canada", aliases=["country_code:ca"])
+    germany = sy.DataSubject(name="Germany", aliases=["country_code:de"])
+    spain = sy.DataSubject(name="Spain", aliases=["country_code:es"])
+    france = sy.DataSubject(name="France", aliases=["country_code:fr"])
+    japan = sy.DataSubject(name="Japan", aliases=["country_code:jp"])
+    uk = sy.DataSubject(name="United Kingdom", aliases=["country_code:uk"])
+    usa = sy.DataSubject(name="United States of America", aliases=["country_code:us"])
+    australia = sy.DataSubject(name="Australia", aliases=["country_code:au"])
+    india = sy.DataSubject(name="India", aliases=["country_code:in"])
     
-    # federated training
-    for epoch in range(args.epochs):
-        start_time = time.time()
-        print(f"Epoch Number {epoch + 1}")
-        federated_model = train()
-        model = federated_model
-        test(federated_model)
-        total_time = time.time() - start_time
-        print('Communication time over the network', round(total_time, 2), 's\n')
+    country.add_member(canada)
+    country.add_member(germany)
+    country.add_member(spain)
+    country.add_member(france)
+    country.add_member(japan)
+    country.add_member(uk)
+    country.add_member(usa)
+    country.add_member(australia)
+    country.add_member(india)
+
+    print("showing  members of Country data subject")
+    print(country.members)
+    
+    # register subject and all members
+    response = domain_client.data_subject_registry.add_data_subject(country)
+    assert response  # did it work?
+    
+    # Lets look at the data subjects added to the data
+    data_subjects = domain_client.data_subject_registry.get_all()
+    print("showing subjects in registry")
+    print(data_subjects)
+    assert len(data_subjects) == 10 # 10 data subjects have been uploaded
+    # prepare the dataset
+    canada_dataset_url = "https://github.com/OpenMined/datasets/blob/main/trade_flow/ca%20-%20feb%202021.csv?raw=True"
+    df = pd.read_csv(autocache(canada_dataset_url))
+    print("downloaded dataset for uploading")
+    print(df.head())
+    
+    # example private version dataset
+    ca_data = df[0:10]
+    # example mock version dataset -- public
+    mock_ca_data = df[10:20]
+    
+    # syft dataset
+    print("creating syft dataset")
+    dataset = sy.Dataset(name="Canada Trade Value")
+    dataset.set_description("Canada Trade Data")
+    dataset.add_citation("Person, place or thing")
+    dataset.add_url("https://github.com/OpenMined/datasets/tree/main/trade_flow")
+    
+    dataset.add_contributor(
+        name="Andrew Trask",
+        email="andrew@openmined.org",
+        note="Andrew runs this domain and prepared the dataset metadata.",
+    )
+
+    dataset.add_contributor(
+        name="Madhava Jay",
+        email="madhava@openmined.org",
+        note="Madhava tweaked the description to add the URL because Andrew forgot.",
+    )
+    
+    assert len(dataset.contributors) == 2
+    
+    print("adding downloaded data to the created syft dataset")
+    ctf = sy.Asset(name="canada_trade_flow")
+    ctf.set_description(
+        "Canada trade flow represents export & import of different commodities to other countries"
+    )
+    ctf.add_contributor(
+        name="Andrew Trask",
+        email="andrew@openmined.org",
+        note="Andrew runs this domain and prepared the asset.",
+    )
+    print("adding private data to the created asset")
+    ctf.set_obj(ca_data)
+    ctf.set_shape(ca_data.shape)
+    ctf.add_data_subject(canada)
+    ctf.set_mock(mock_ca_data, mock_is_real=False)  # can use ctf.no_mock() if no mock desired
+    dataset.add_asset(ctf)  # dataset.remove_asset(ctf) will remove it from the dataset
+    
+    print("uploading syft dataset to the domain server")
+    domain_client.upload_dataset(dataset)
+    
+    print("checking all data was uploaded correctly, and that bob, as the owner, can access it")
+    datasets = domain_client.datasets.get_all()
+    assert len(datasets) == 1
+    mock = domain_client.datasets[0].assets[0].mock
+    assert mock_ca_data.equals(mock)
+    real = domain_client.datasets[0].assets[0].data
+    assert ca_data.equals(real)
+    print("Data upload and user registry done!")
