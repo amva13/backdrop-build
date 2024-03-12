@@ -85,18 +85,39 @@ if __name__ == "__main__":
     
     # Add a request to submit & execute the code
     result = new_project.create_code_request(sum_trade_value_mil, jane_client)
-    assert len(jane_client.code.get_all()) == 1, str(result)
+    print("starting project")
+    # stproject = new_project.start()
+    # print(stproject)
+    # assert len(jane_client.code.get_all()) == 1, str(result)
     
     print("submitting project")
     project = new_project.start()
     assert isinstance(project, sy.service.project.project.Project)
     print(project)
+
+    print("HACK -- logging into root in same script and approving the request")
+    root_user = sy.login(email="info@openmined.org", password="changethis", port=EXAMPLE_PORT)
+    print("admin client is")
+    print(root_user)
+    print("requests")
+    print(root_user.requests)
+    print(root_user.requests.get_all())
+    assert len(root_user.requests.get_all()) == 1, root_user.requests.get_all() # TODO: why are there no requests??
+    # request = root_user.notifications[-1].link.requests[0]
+    # print(request)
+    # print(request.code)
+    # request.approve()
     
-    print("testing the function without approval")
+    print("now executing the function")
     result = jane_client.code.sum_trade_value_mil(trade_data=asset)
     print(result)
-    assert isinstance(result, sy.SyftError)
     print("done!")
+    
+    # print("testing the function without approval")
+    # result = jane_client.code.sum_trade_value_mil(trade_data=asset)
+    # print(result)
+    # assert isinstance(result, sy.SyftError)
+    # print("done!")
     
     
 #     # Or when working on a project that already exists
